@@ -311,7 +311,8 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
             $dbgPrefilterHit++
             $o = $null
             try { $o = $line | ConvertFrom-Json -ErrorAction Stop; $dbgParseOk++ } catch { $dbgParseErr++; continue }
-            if ($o.type -ne 'assistant' -or -not $o.usage) { continue }
+            # usage/model live under .message, not at the top level of the line.
+            if ($o.type -ne 'assistant' -or -not $o.message -or -not $o.message.usage) { continue }
             $dbgIsAssistantWithUsage++
 
             $rid = $o.requestId
@@ -326,13 +327,13 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
             $dbgHasTs++
             $matched++
 
-            $u = $o.usage
+            $u = $o.message.usage
             $tok = 0.0
             if ($u.input_tokens) { $tok += [double]$u.input_tokens }
             if ($u.output_tokens) { $tok += [double]$u.output_tokens }
             if ($u.cache_creation_input_tokens) { $tok += [double]$u.cache_creation_input_tokens }
             if ($u.cache_read_input_tokens) { $tok += [double]$u.cache_read_input_tokens }
-            $cost = Get-EntryCost $u $o.model
+            $cost = Get-EntryCost $u $o.message.model
 
             if ($ts -ge $sessStart) { $sessTok += $tok; $sessCost += $cost }
             if ($ts -ge $weekStart) { $weekTok += $tok; $weekCost += $cost }
