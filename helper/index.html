@@ -201,9 +201,9 @@
   .panelRows {
     flex: 1;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     grid-auto-rows: 1fr;
-    gap: 1.4vh;
+    gap: 1vh;
     min-height: 0;
     overflow: hidden;
   }
@@ -214,11 +214,16 @@
     color: var(--text-muted);
     font-size: clamp(10px, min(2.4vh, 2.8vw), 16px);
   }
+  /* container-type: size makes the cqh/cqw units below relative to each
+     tile's OWN box, not the viewport - so text scales down correctly when
+     the grid wraps to more rows (5 tiles = 3 short rows) instead of
+     overflowing past the tile's edges the way vh-based sizing would. */
   .tile {
+    container-type: size;
     background: var(--surface-3);
     border: 1px solid var(--hairline);
     border-radius: 1.4vh;
-    padding: 1.8vh 2vh;
+    padding: 1.2vh 1.6vh;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -231,16 +236,17 @@
     align-items: center;
     gap: 0.7vh;
     min-width: 0;
+    flex: none;
   }
   .tile .dot {
     width: 0.9vh; height: 0.9vh;
-    min-width: 7px; min-height: 7px;
+    min-width: 6px; min-height: 6px;
     border-radius: 50%;
     background: var(--accent);
     flex: none;
   }
   .tile .tileLabel {
-    font-size: clamp(10px, min(2.4vh, 2.8vw), 17px);
+    font-size: clamp(9px, 15cqh, 17px);
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -248,16 +254,17 @@
   }
   .tile .tileValue {
     font-weight: 600;
-    font-size: clamp(20px, min(6.5vh, 7.5vw), 50px);
-    line-height: 1.1;
-    margin: 0.6vh 0;
+    font-size: clamp(16px, 34cqh, 50px);
+    line-height: 1.05;
+    margin: 0.4cqh 0;
   }
   .tile .tileValue .unit { font-size: 0.5em; font-weight: 500; color: var(--text-secondary); }
   .tile .tileMeter {
-    height: clamp(5px, 0.9vh, 8px);
+    height: clamp(4px, 8cqh, 8px);
     border-radius: 3px;
     background: var(--accent-track);
     overflow: hidden;
+    flex: none;
   }
   .tile .tileMeter i {
     display: block;
@@ -268,12 +275,20 @@
     transition: width 0.6s ease, background 0.3s ease;
   }
   .tile .tileSub {
-    margin-top: 0.7vh;
-    font-size: clamp(9px, min(2vh, 2.2vw), 14px);
+    margin-top: 0.5cqh;
+    font-size: clamp(8px, 12cqh, 14px);
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: none;
+  }
+  /* Stat tiles (tokens/cost/burn rate/projection) show a value string rather
+     than a 0-100% meter, and the strings run longer ("$0.36", "6.42M") so we
+     cap the font a bit smaller than the plain percentage tiles. */
+  .tile.noMeter .tileMeter { display: none; }
+  .tile.noMeter .tileValue {
+    font-size: clamp(13px, 26cqh, 36px);
   }
 
   .footer {
@@ -407,6 +422,21 @@
     if (h > 0) return h + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
     return mm + 'm';
   }
+  function fmtTokens(n) {
+    if (n == null || !isFinite(n)) return '—';
+    var v = Math.abs(n);
+    var sign = n < 0 ? '-' : '';
+    if (v >= 1e6) return sign + (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return sign + (v / 1e3).toFixed(1) + 'K';
+    return sign + String(Math.round(v));
+  }
+  function fmtCost(n) {
+    if (n == null || !isFinite(n)) return '—';
+    var v = Math.abs(n);
+    var sign = n < 0 ? '-' : '';
+    var s = v < 1 ? v.toFixed(3) : v < 100 ? v.toFixed(2) : v.toFixed(0);
+    return sign + '$' + s;
+  }
   function fmtClock(dt) {
     try {
       var opts = { hour: 'numeric', minute: '2-digit' };
@@ -508,6 +538,51 @@
     el.querySelector('.lbl').textContent = Math.round(frac * 100) + '% of window elapsed';
   }
 
+  // ---------- local token/cost stat tiles (from the helper's log scan) ----------
+  // Only built from fields the helper actually returned, so a helper without
+  // this feature (or one that found no local logs) just yields an empty list.
+  function buildStatDefs(local) {
+    var defs = [];
+    if (!local) return defs;
+    if (local.tokensSession != null) {
+      defs.push(['stat_tokens', {
+        label: 'Tokens · session',
+        value: fmtTokens(local.tokensSession),
+        sub: local.tokensWeek != null ? ('week ' + fmtTokens(local.tokensWeek)) : ''
+      }]);
+    }
+    if (local.costSession != null) {
+      defs.push(['stat_cost', {
+        label: 'Est. cost · session',
+        value: fmtCost(local.costSession),
+        sub: local.costWeek != null ? ('week ' + fmtCost(local.costWeek) + ' · API-rate est.') : 'API-rate est.'
+      }]);
+    }
+    if (local.tokensPerMin != null) {
+      defs.push(['stat_burn', {
+        label: 'Burn rate',
+        value: fmtTokens(local.tokensPerMin) + '/m',
+        sub: local.costPerHour != null ? (fmtCost(local.costPerHour) + '/hr') : ''
+      }]);
+    }
+    if (local.blockProjectedTokens != null) {
+      defs.push(['stat_block', {
+        label: 'Session projection',
+        value: fmtTokens(local.blockProjectedTokens),
+        sub: local.blockProjectedCost != null ? ('≈ ' + fmtCost(local.blockProjectedCost) + ' by reset') : 'by reset'
+      }]);
+    }
+    return defs;
+  }
+  function renderStatTile(el, def) {
+    el.classList.add('noMeter');
+    el.querySelector('.dot').style.background = 'var(--accent)';
+    el.querySelector('.tileLabel').textContent = def.label;
+    el.querySelector('.tileValue .num').textContent = def.value;
+    el.querySelector('.tileValue .unit').textContent = '';
+    el.querySelector('.tileSub').textContent = def.sub || '';
+  }
+
   function render() {
     var data = state.data;
     if (state.offline) {
@@ -533,13 +608,15 @@
     var limits = limitsFrom(data);
     var ringKeys = limits.filter(function (p) { return RING_KEYS.indexOf(p[0]) !== -1; });
     var rowKeys = limits.filter(function (p) { return RING_KEYS.indexOf(p[0]) === -1; });
+    var statDefs = buildStatDefs(data.local);
+    var panelKeys = rowKeys.map(function (p) { return p[0]; }).concat(statDefs.map(function (d) { return d[0]; }));
 
-    // Remove stale ring/row elements
+    // Remove stale ring/tile elements
     Object.keys(ringEls).forEach(function (k) {
       if (!ringKeys.some(function (p) { return p[0] === k; })) { ringEls[k].remove(); delete ringEls[k]; }
     });
     Object.keys(rowEls).forEach(function (k) {
-      if (!rowKeys.some(function (p) { return p[0] === k; })) { rowEls[k].remove(); delete rowEls[k]; }
+      if (panelKeys.indexOf(k) === -1) { rowEls[k].remove(); delete rowEls[k]; }
     });
 
     var now = Date.now();
@@ -564,8 +641,8 @@
       fillPace(el.querySelector('.ringPace'), key, lim, now);
     });
 
-    // ---- side panel: grid of stat tiles ----
-    if (rowKeys.length === 0) {
+    // ---- side panel: grid of stat tiles (remaining limits + local token/cost stats) ----
+    if (panelKeys.length === 0) {
       if (!panelRowsEl.querySelector('.panelEmpty')) {
         panelRowsEl.innerHTML = '<div class="panelEmpty">Nothing else to show</div>';
       }
@@ -575,6 +652,7 @@
       rowKeys.forEach(function (pair) {
         var key = pair[0], lim = pair[1];
         var el = rowEls[key] || buildTile(key);
+        el.classList.remove('noMeter');
         var pct = Number(lim.utilization);
         if (!isFinite(pct)) pct = 0;
         pct = Math.max(0, Math.min(100, pct));
@@ -583,6 +661,7 @@
         el.querySelector('.dot').style.background = sev.fill;
         el.querySelector('.tileLabel').textContent = prettyLabel(key);
         el.querySelector('.tileValue .num').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) : pct.toFixed(1);
+        el.querySelector('.tileValue .unit').textContent = '%';
         var fill = el.querySelector('.tileMeter i');
         fill.style.width = pct + '%';
         fill.style.background = sev.fill;
@@ -595,6 +674,11 @@
         } else {
           subEl.textContent = '';
         }
+      });
+      statDefs.forEach(function (pair) {
+        var key = pair[0], def = pair[1];
+        var el = rowEls[key] || buildTile(key);
+        renderStatTile(el, def);
       });
     }
 

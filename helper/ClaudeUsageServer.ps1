@@ -231,32 +231,53 @@ function Find-ProjectsDir {
     return @($candidates | Where-Object { $_ -and (Test-Path $_ -ErrorAction SilentlyContinue) })
 }
 
+# Parses an ISO-8601 timestamp (as returned by both the OAuth usage API and
+# Claude Code's local logs, e.g. "2026-08-09T20:30:00Z") into a UTC [datetime].
+# Deliberately does NOT use [datetime]-cast + .ToLocalTime(): whether a plain
+# cast leaves DateTimeKind as Utc, Local, or Unspecified is culture/runtime
+# dependent, and calling .ToLocalTime() on an already-local or Unspecified
+# value can silently double-shift by the timezone offset. Working entirely in
+# UTC (parse as UTC, compare against [DateTime]::UtcNow) sidesteps that class
+# of bug altogether.
+function ConvertTo-UtcDateTime($s) {
+    if (-not $s) { return $null }
+    try {
+        return [datetime]::Parse(
+            [string]$s,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::AdjustToUniversal -bor [System.Globalization.DateTimeStyles]::AssumeUniversal
+        )
+    } catch { return $null }
+}
+
 function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
-    $now = Get-Date
+    $now = [datetime]::UtcNow
     $stats = @{ available = $false }
 
     $dirs = Find-ProjectsDir
-    if (-not $dirs -or $dirs.Count -eq 0) { return $stats }
+    if (-not $dirs -or $dirs.Count -eq 0) { $stats['debugDirsFound'] = 0; return $stats }
 
     # Only files touched recently enough to matter for a 7-day window (+ buffer).
-    $cutoff = (Get-Date).AddDays(-8)
+    $cutoff = (Get-Date).AddDays(-8)   # LastWriteTime is local; fine to compare local-to-local
     $files = @()
     foreach ($d in $dirs) {
         $files += Get-ChildItem -Path $d -Recurse -Filter '*.jsonl' -ErrorAction SilentlyContinue |
                   Where-Object { $_.LastWriteTime -ge $cutoff }
     }
+    $stats['debugDirsFound']  = $dirs.Count
+    $stats['debugFilesFound'] = $files.Count
     if ($files.Count -eq 0) { return $stats }
 
     # Anchor session/week windows to the OAuth data's own reset times when we
     # have them, so "session" here means the same 5-hour block the ring shows.
     $sessStart = $now.AddHours(-5)
-    if ($fiveHourResetsAt) {
-        try { $sessStart = ([datetime]$fiveHourResetsAt).ToLocalTime().AddHours(-5) } catch { }
-    }
+    $fiveHourResetsUtc = ConvertTo-UtcDateTime $fiveHourResetsAt
+    if ($fiveHourResetsUtc) { $sessStart = $fiveHourResetsUtc.AddHours(-5) }
+
     $weekStart = $now.AddDays(-7)
-    if ($weeklyResetsAt) {
-        try { $weekStart = ([datetime]$weeklyResetsAt).ToLocalTime().AddDays(-7) } catch { }
-    }
+    $weeklyResetsUtc = ConvertTo-UtcDateTime $weeklyResetsAt
+    if ($weeklyResetsUtc) { $weekStart = $weeklyResetsUtc.AddDays(-7) }
+
     $burnStart = $now.AddMinutes(-30)
 
     # Dedup by request id: Claude Code sometimes logs more than one JSONL line
@@ -267,12 +288,17 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
     $weekTok = 0.0; $weekCost = 0.0
     $burnTok = 0.0; $burnCost = 0.0
     $burnEarliest = $null; $burnLatest = $null
+    $matched = 0
 
     foreach ($f in $files) {
         $lines = $null
         try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch { continue }
         foreach ($line in $lines) {
-            if (-not $line -or $line.IndexOf('"type":"assistant"') -lt 0) { continue }
+            # Cheap pre-filter before the expensive JSON parse - deliberately loose
+            # (just "does this line mention assistant at all") since the exact
+            # colon/space formatting of the raw file isn't guaranteed; the real
+            # filter is the $o.type -eq 'assistant' check right after parsing.
+            if (-not $line -or $line.IndexOf('assistant') -lt 0) { continue }
             $o = $null
             try { $o = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
             if ($o.type -ne 'assistant' -or -not $o.usage) { continue }
@@ -283,8 +309,9 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
             if (-not $rid) { continue }
             if (-not $seen.Add($rid)) { continue }   # already counted this API call
 
-            $ts = $null
-            try { $ts = ([datetime]$o.timestamp).ToLocalTime() } catch { continue }
+            $ts = ConvertTo-UtcDateTime $o.timestamp
+            if (-not $ts) { continue }
+            $matched++
 
             $u = $o.usage
             $tok = 0.0
@@ -304,11 +331,12 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
         }
     }
 
-    $stats['available']     = $true
-    $stats['tokensSession'] = [math]::Round($sessTok)
-    $stats['tokensWeek']    = [math]::Round($weekTok)
-    $stats['costSession']   = [math]::Round($sessCost, 4)
-    $stats['costWeek']      = [math]::Round($weekCost, 4)
+    $stats['available']       = $true
+    $stats['debugEntriesSeen'] = $matched
+    $stats['tokensSession']   = [math]::Round($sessTok)
+    $stats['tokensWeek']      = [math]::Round($weekTok)
+    $stats['costSession']     = [math]::Round($sessCost, 4)
+    $stats['costWeek']        = [math]::Round($weekCost, 4)
 
     # Burn rate / block projection need enough of a time span to be meaningful -
     # a 10-second span would extrapolate wildly, so require at least 2 minutes.
@@ -320,15 +348,12 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
         $stats['tokensPerMin'] = [math]::Round($tpm, 1)
         $stats['costPerHour']  = [math]::Round($cph, 2)
 
-        if ($fiveHourResetsAt) {
-            try {
-                $resetLocal = ([datetime]$fiveHourResetsAt).ToLocalTime()
-                $minsLeft = ($resetLocal - $now).TotalMinutes
-                if ($minsLeft -gt 0) {
-                    $stats['blockProjectedTokens'] = [math]::Round($sessTok + $tpm * $minsLeft)
-                    $stats['blockProjectedCost']   = [math]::Round($sessCost + ($cph / 60.0) * $minsLeft, 2)
-                }
-            } catch { }
+        if ($fiveHourResetsUtc) {
+            $minsLeft = ($fiveHourResetsUtc - $now).TotalMinutes
+            if ($minsLeft -gt 0) {
+                $stats['blockProjectedTokens'] = [math]::Round($sessTok + $tpm * $minsLeft)
+                $stats['blockProjectedCost']   = [math]::Round($sessCost + ($cph / 60.0) * $minsLeft, 2)
+            }
         }
     }
 
