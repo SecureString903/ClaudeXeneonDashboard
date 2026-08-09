@@ -136,6 +136,30 @@
   .ringReset .in { color: var(--text-primary); }
   .ringReset .at { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
 
+  /* time-elapsed pace bar: how far into the window we are, vs. how much is used */
+  .ringPace { width: 100%; margin-top: 1vh; }
+  .ringPace .bar {
+    height: clamp(3px, 0.5vh, 5px);
+    border-radius: 2px;
+    background: var(--surface-3);
+    overflow: hidden;
+  }
+  .ringPace .bar i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--text-secondary);
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+  .ringPace .lbl {
+    margin-top: 0.4vh;
+    font-size: clamp(8px, min(1.8vh, 2vw), 13px);
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
+  }
+
   /* ---------- side panel ---------- */
   .panel {
     flex: 1;
@@ -172,53 +196,70 @@
     color: var(--text-muted);
     white-space: nowrap;
   }
+  /* Grid of stat tiles - stretches to fill the panel however many tiles
+     there are, so 1 tile looks as intentional as 6. */
   .panelRows {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-evenly;
-    gap: 1vh;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-auto-rows: 1fr;
+    gap: 1.4vh;
     min-height: 0;
     overflow: hidden;
   }
   .panelEmpty {
+    grid-column: 1 / -1;
     margin: auto;
     text-align: center;
     color: var(--text-muted);
     font-size: clamp(10px, min(2.4vh, 2.8vw), 16px);
   }
-  .row {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
+  .tile {
+    background: var(--surface-3);
+    border: 1px solid var(--hairline);
+    border-radius: 1.4vh;
+    padding: 1.8vh 2vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .tile .tileTop {
+    display: flex;
     align-items: center;
-    gap: 0.9vh;
+    gap: 0.7vh;
     min-width: 0;
   }
-  .row .dot {
+  .tile .dot {
     width: 0.9vh; height: 0.9vh;
     min-width: 7px; min-height: 7px;
     border-radius: 50%;
     background: var(--accent);
     flex: none;
   }
-  .row .rowMain { display: block; min-width: 0; }
-  .row .rowLabel {
-    display: block;
+  .tile .tileLabel {
     font-size: clamp(10px, min(2.4vh, 2.8vw), 17px);
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .row .rowMeter {
-    display: block;
+  .tile .tileValue {
+    font-weight: 600;
+    font-size: clamp(20px, min(6.5vh, 7.5vw), 50px);
+    line-height: 1.1;
+    margin: 0.6vh 0;
+  }
+  .tile .tileValue .unit { font-size: 0.5em; font-weight: 500; color: var(--text-secondary); }
+  .tile .tileMeter {
     height: clamp(5px, 0.9vh, 8px);
     border-radius: 3px;
     background: var(--accent-track);
     overflow: hidden;
-    margin-top: 0.5vh;
   }
-  .row .rowMeter i {
+  .tile .tileMeter i {
     display: block;
     height: 100%;
     width: 0%;
@@ -226,18 +267,13 @@
     border-radius: 0 3px 3px 0;
     transition: width 0.6s ease, background 0.3s ease;
   }
-  .row .rowRight {
-    text-align: right;
-    white-space: nowrap;
-  }
-  .row .rowPct {
-    font-weight: 600;
-    font-size: clamp(11px, min(2.6vh, 3vw), 18px);
-  }
-  .row .rowReset {
-    display: block;
-    font-size: clamp(8px, min(1.8vh, 2vw), 13px);
+  .tile .tileSub {
+    margin-top: 0.7vh;
+    font-size: clamp(9px, min(2vh, 2.2vw), 14px);
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .footer {
@@ -340,6 +376,8 @@
   // The two headline limits get the big ring gauges; everything else (that's
   // recognized, or clearly an "extra" bucket) is listed compactly in the panel.
   var RING_KEYS = ['five_hour', 'seven_day'];
+  // Window lengths for the "time elapsed" pace bar under each ring.
+  var WIN_MS = { five_hour: 5 * 3600 * 1000, seven_day: 7 * 24 * 3600 * 1000 };
   // Only show recognized panels; unrecognized internal buckets (codename fields
   // Anthropic hasn't announced) are hidden. Extra-credit-style keys always pass.
   function isUseful(key) {
@@ -424,19 +462,21 @@
         '<span class="ringWord"></span></div>' +
       '</div>' +
       '<div class="ringLabel"></div>' +
-      '<div class="ringReset"><span class="in"></span><span class="at"></span></div>';
+      '<div class="ringReset"><span class="in"></span><span class="at"></span></div>' +
+      '<div class="ringPace"><div class="bar"><i></i></div><div class="lbl"></div></div>';
     ringsEl.appendChild(el);
     ringEls[key] = el;
     return el;
   }
 
-  function buildRow(key) {
+  function buildTile(key) {
     var el = document.createElement('div');
-    el.className = 'row';
+    el.className = 'tile';
     el.innerHTML =
-      '<span class="dot"></span>' +
-      '<span class="rowMain"><span class="rowLabel"></span><span class="rowMeter"><i></i></span></span>' +
-      '<span class="rowRight"><span class="rowPct"></span><span class="rowReset"></span></span>';
+      '<div class="tileTop"><span class="dot"></span><span class="tileLabel"></span></div>' +
+      '<div><div class="tileValue"><span class="num"></span><span class="unit">%</span></div>' +
+      '<div class="tileMeter"><i></i></div></div>' +
+      '<div class="tileSub"></div>';
     panelRowsEl.appendChild(el);
     rowEls[key] = el;
     return el;
@@ -452,6 +492,20 @@
       }
     }
     inEl.textContent = ''; atEl.textContent = '';
+  }
+
+  // How far into the current window we are (0-1), for the pace bar. Needs a
+  // known window length (5-hour / weekly) and a resets_at to anchor the start.
+  function fillPace(el, key, lim, now) {
+    var windowMs = WIN_MS[key];
+    if (!windowMs || !lim.resets_at) { el.style.display = 'none'; return; }
+    var end = new Date(lim.resets_at).getTime();
+    if (isNaN(end)) { el.style.display = 'none'; return; }
+    var start = end - windowMs;
+    var frac = Math.max(0, Math.min(1, (now - start) / windowMs));
+    el.style.display = '';
+    el.querySelector('.bar i').style.width = (frac * 100).toFixed(1) + '%';
+    el.querySelector('.lbl').textContent = Math.round(frac * 100) + '% of window elapsed';
   }
 
   function render() {
@@ -507,9 +561,10 @@
       el.querySelector('.ringWord').textContent = sev.word;
       el.querySelector('.ringLabel').textContent = prettyLabel(key);
       fillReset(el.querySelector('.ringReset .in'), el.querySelector('.ringReset .at'), lim, now);
+      fillPace(el.querySelector('.ringPace'), key, lim, now);
     });
 
-    // ---- side panel rows ----
+    // ---- side panel: grid of stat tiles ----
     if (rowKeys.length === 0) {
       if (!panelRowsEl.querySelector('.panelEmpty')) {
         panelRowsEl.innerHTML = '<div class="panelEmpty">Nothing else to show</div>';
@@ -519,26 +574,26 @@
       if (empty) empty.remove();
       rowKeys.forEach(function (pair) {
         var key = pair[0], lim = pair[1];
-        var el = rowEls[key] || buildRow(key);
+        var el = rowEls[key] || buildTile(key);
         var pct = Number(lim.utilization);
         if (!isFinite(pct)) pct = 0;
         pct = Math.max(0, Math.min(100, pct));
         var sev = severity(pct);
 
         el.querySelector('.dot').style.background = sev.fill;
-        el.querySelector('.rowLabel').textContent = prettyLabel(key);
-        var fill = el.querySelector('.rowMeter i');
+        el.querySelector('.tileLabel').textContent = prettyLabel(key);
+        el.querySelector('.tileValue .num').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) : pct.toFixed(1);
+        var fill = el.querySelector('.tileMeter i');
         fill.style.width = pct + '%';
         fill.style.background = sev.fill;
-        el.querySelector('.rowMeter').style.background = sev.track;
-        el.querySelector('.rowPct').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) + '%' : pct.toFixed(1) + '%';
+        el.querySelector('.tileMeter').style.background = sev.track;
 
-        var resetEl = el.querySelector('.rowReset');
+        var subEl = el.querySelector('.tileSub');
         if (lim.resets_at) {
           var t = new Date(lim.resets_at);
-          resetEl.textContent = !isNaN(t) ? fmtCountdown(t - now) : '';
+          subEl.textContent = !isNaN(t) ? 'Resets in ' + fmtCountdown(t - now) : '';
         } else {
-          resetEl.textContent = '';
+          subEl.textContent = '';
         }
       });
     }

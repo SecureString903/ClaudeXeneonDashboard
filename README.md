@@ -1,9 +1,12 @@
 # Claude Usage — Corsair Xeneon Edge widget
 
 Show your live Claude subscription usage on a [Corsair Xeneon Edge](https://www.corsair.com/us/en/p/monitors/cm-9020001-ww/xeneon-edge)
-touchscreen: the **5-hour session** limit and **weekly** limits, each with a
-severity-colored meter and a "resets in…" countdown. The same numbers Claude
-Code shows in `/usage`, always on your desk.
+touchscreen: severity-colored **ring gauges** for the **5-hour session** and
+**weekly** limits (with a "resets in…" countdown and a time-elapsed pace bar),
+plus a side panel with any other limits your account reports and — if you use
+Claude Code for actual coding sessions on this PC — local token counts,
+estimated cost, burn rate, and a session-end projection. The same numbers
+Claude Code shows in `/usage`, always on your desk.
 
 ![Widget in a small slot](docs/widget-small.png)
 
@@ -15,13 +18,15 @@ Adapts to any Edge slot — small, full-width, or vertical:
 
 | Part | What it does |
 |---|---|
-| `helper/ClaudeUsageServer.ps1` | Tiny background server (plain PowerShell, no dependencies). Reads Claude Code's saved login, fetches usage from Anthropic once a minute, serves it at `http://127.0.0.1:8787`. Renews the login automatically with the stored refresh token. |
+| `helper/ClaudeUsageServer.ps1` | Tiny background server (plain PowerShell, no dependencies). Reads Claude Code's saved login, fetches usage from Anthropic once a minute, serves it at `http://127.0.0.1:8787`. Renews the login automatically with the stored refresh token. Also scans your local Claude Code session logs (`~/.claude/projects/**/*.jsonl`) for token/cost stats, if any exist. |
 | `widget/` | The iCUE widget (HTML/CSS/JS). Fetches from the helper and renders it. |
 
 The widget runs in a sandboxed web view inside iCUE and can't read files, which
 is why the helper exists. Everything stays on your machine: the helper listens
 on `127.0.0.1` only and talks only to `api.anthropic.com` (and Anthropic's
-OAuth endpoint for renewal). Your token is never embedded in any file here.
+OAuth endpoint for renewal), plus your own local `.claude` folder to read
+session logs. Your token is never embedded in any file here, and nothing local
+is ever written back or sent anywhere.
 
 ## Install
 
@@ -49,6 +54,17 @@ No iCUE widget import needed? iCUE's built-in **iFrame widget** pointed at
 - **Only recognized limit types are shown** (session, weekly buckets, extra
   credit). Unannounced fields the endpoint sometimes returns are hidden — see
   `isUseful()` in `widget/index.html` to adjust.
+- **Local token/cost/burn-rate/projection tiles** only appear if you've
+  actually run coding sessions with `claude` on this PC (not just logged in) —
+  they come from your local session transcripts, not the Anthropic account API.
+  **The cost figures are estimates**, computed by applying Anthropic's published
+  pay-as-you-go API prices to your local token counts. If you're on a Claude
+  subscription (Pro/Max/Team) rather than metered API billing, this is *not*
+  your actual bill — it's a "what this usage would cost via the API" gauge of
+  how heavy a session was. Pricing is hardcoded in `$script:Pricing` at the top
+  of `ClaudeUsageServer.ps1`; update it there if Anthropic changes prices or you
+  use a model that isn't listed (unlisted models are still counted in token
+  totals, just excluded from the cost estimate).
 - **Uninstall:** `helper/uninstall.bat`, then remove the widget from iCUE.
 
 ## Disclaimer

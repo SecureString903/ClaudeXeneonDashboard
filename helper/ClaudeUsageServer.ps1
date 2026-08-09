@@ -147,6 +147,194 @@ function Invoke-TokenRefresh($state) {
     return $true
 }
 
+# ---------------- local token / cost tracking ----------------
+#
+# Reads Claude Code's own local session transcripts (~/.claude/projects/**/*.jsonl,
+# the same files a tool like ccusage reads) to estimate token usage and cost that
+# the OAuth /usage endpoint doesn't report (it only gives utilization percentages).
+#
+# Cost is an ESTIMATE using Anthropic's published pay-as-you-go API list prices
+# applied to your local token counts - it is NOT your actual bill (Claude
+# subscriptions are flat-rate). Treat it as "what this usage would cost via the
+# API," a useful gauge of how heavy a session was, not a real charge.
+#
+# Prices are $ per million tokens. Cache write/read are derived from the input
+# price using Anthropic's published multipliers (5-min write = 1.25x input,
+# 1-hour write = 2x input, cache read = 0.1x input) - confirmed consistent
+# across every current model's published pricing.
+$script:Pricing = [ordered]@{
+    'claude-opus-5'            = @{ In = 5;   Out = 25 }
+    'claude-opus-4-8'          = @{ In = 5;   Out = 25 }
+    'claude-opus-4-7'          = @{ In = 5;   Out = 25 }
+    'claude-opus-4-6'          = @{ In = 5;   Out = 25 }
+    'claude-opus-4-5'          = @{ In = 5;   Out = 25 }
+    'claude-opus-4-1'          = @{ In = 15;  Out = 75 }
+    'claude-opus-4-20250514'   = @{ In = 15;  Out = 75 }
+    'claude-sonnet-5'          = @{ In = 2;   Out = 10 }  # introductory price through 2026-08-31, then $3/$15
+    'claude-sonnet-4-6'        = @{ In = 3;   Out = 15 }
+    'claude-sonnet-4-5'        = @{ In = 3;   Out = 15 }
+    'claude-sonnet-4-20250514' = @{ In = 3;   Out = 15 }
+    'claude-haiku-4-5'         = @{ In = 1;   Out = 5 }
+    'claude-3-5-haiku'         = @{ In = 0.8; Out = 4 }
+    'claude-fable-5'           = @{ In = 10;  Out = 50 }
+    'claude-mythos-5'          = @{ In = 10;  Out = 50 }
+}
+$script:PricingKeys = $script:Pricing.Keys | Sort-Object Length -Descending
+
+function Get-ModelPrice($model) {
+    if (-not $model) { return $null }
+    foreach ($k in $script:PricingKeys) {
+        if ($model.StartsWith($k)) { return $script:Pricing[$k] }
+    }
+    return $null   # unknown/new model - excluded from cost (tokens still counted elsewhere)
+}
+
+function Get-EntryCost($usage, $model) {
+    $pr = Get-ModelPrice $model
+    if (-not $pr) { return 0.0 }
+    $inp = [double]$pr.In; $outp = [double]$pr.Out
+    $it = 0.0; if ($usage.input_tokens) { $it = [double]$usage.input_tokens }
+    $ot = 0.0; if ($usage.output_tokens) { $ot = [double]$usage.output_tokens }
+    $cr = 0.0; if ($usage.cache_read_input_tokens) { $cr = [double]$usage.cache_read_input_tokens }
+    $c5 = 0.0; $c1 = 0.0
+    if ($usage.cache_creation -and ($usage.cache_creation.ephemeral_5m_input_tokens -or $usage.cache_creation.ephemeral_1h_input_tokens)) {
+        if ($usage.cache_creation.ephemeral_5m_input_tokens) { $c5 = [double]$usage.cache_creation.ephemeral_5m_input_tokens }
+        if ($usage.cache_creation.ephemeral_1h_input_tokens) { $c1 = [double]$usage.cache_creation.ephemeral_1h_input_tokens }
+    } elseif ($usage.cache_creation_input_tokens) {
+        # No 5m/1h breakdown available - assume the cheaper 5m tier (conservative).
+        $c5 = [double]$usage.cache_creation_input_tokens
+    }
+    return ($it / 1e6) * $inp + ($ot / 1e6) * $outp + ($c5 / 1e6) * (1.25 * $inp) + ($c1 / 1e6) * (2 * $inp) + ($cr / 1e6) * (0.1 * $inp)
+}
+
+function Find-ProjectsDir {
+    # Mirrors Find-CredentialFile's search locations, but for the "projects"
+    # sibling folder where Claude Code keeps session transcripts.
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if ($env:CLAUDE_CONFIG_DIR) { $candidates.Add((Join-Path $env:CLAUDE_CONFIG_DIR 'projects')) }
+    $candidates.Add((Join-Path $env:USERPROFILE '.claude\projects'))
+    try {
+        $distros = & wsl.exe -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ }
+        foreach ($d in $distros) {
+            foreach ($root in @("\\wsl.localhost\$d", "\\wsl$\$d")) {
+                $homeBase = Join-Path $root 'home'
+                if (Test-Path $homeBase -ErrorAction SilentlyContinue) {
+                    Get-ChildItem $homeBase -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        $candidates.Add((Join-Path $_.FullName '.claude\projects'))
+                    }
+                    $candidates.Add((Join-Path $root 'root\.claude\projects'))
+                    break
+                }
+            }
+        }
+    } catch { }
+    return @($candidates | Where-Object { $_ -and (Test-Path $_ -ErrorAction SilentlyContinue) })
+}
+
+function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
+    $now = Get-Date
+    $stats = @{ available = $false }
+
+    $dirs = Find-ProjectsDir
+    if (-not $dirs -or $dirs.Count -eq 0) { return $stats }
+
+    # Only files touched recently enough to matter for a 7-day window (+ buffer).
+    $cutoff = (Get-Date).AddDays(-8)
+    $files = @()
+    foreach ($d in $dirs) {
+        $files += Get-ChildItem -Path $d -Recurse -Filter '*.jsonl' -ErrorAction SilentlyContinue |
+                  Where-Object { $_.LastWriteTime -ge $cutoff }
+    }
+    if ($files.Count -eq 0) { return $stats }
+
+    # Anchor session/week windows to the OAuth data's own reset times when we
+    # have them, so "session" here means the same 5-hour block the ring shows.
+    $sessStart = $now.AddHours(-5)
+    if ($fiveHourResetsAt) {
+        try { $sessStart = ([datetime]$fiveHourResetsAt).ToLocalTime().AddHours(-5) } catch { }
+    }
+    $weekStart = $now.AddDays(-7)
+    if ($weeklyResetsAt) {
+        try { $weekStart = ([datetime]$weeklyResetsAt).ToLocalTime().AddDays(-7) } catch { }
+    }
+    $burnStart = $now.AddMinutes(-30)
+
+    # Dedup by request id: Claude Code sometimes logs more than one JSONL line
+    # for the same underlying API call (e.g. streaming + finalization); each
+    # real call gets one unique requestId/message.id, so we count it once.
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+    $sessTok = 0.0; $sessCost = 0.0
+    $weekTok = 0.0; $weekCost = 0.0
+    $burnTok = 0.0; $burnCost = 0.0
+    $burnEarliest = $null; $burnLatest = $null
+
+    foreach ($f in $files) {
+        $lines = $null
+        try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch { continue }
+        foreach ($line in $lines) {
+            if (-not $line -or $line.IndexOf('"type":"assistant"') -lt 0) { continue }
+            $o = $null
+            try { $o = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            if ($o.type -ne 'assistant' -or -not $o.usage) { continue }
+
+            $rid = $o.requestId
+            if (-not $rid -and $o.message) { $rid = $o.message.id }
+            if (-not $rid) { $rid = $o.uuid }
+            if (-not $rid) { continue }
+            if (-not $seen.Add($rid)) { continue }   # already counted this API call
+
+            $ts = $null
+            try { $ts = ([datetime]$o.timestamp).ToLocalTime() } catch { continue }
+
+            $u = $o.usage
+            $tok = 0.0
+            if ($u.input_tokens) { $tok += [double]$u.input_tokens }
+            if ($u.output_tokens) { $tok += [double]$u.output_tokens }
+            if ($u.cache_creation_input_tokens) { $tok += [double]$u.cache_creation_input_tokens }
+            if ($u.cache_read_input_tokens) { $tok += [double]$u.cache_read_input_tokens }
+            $cost = Get-EntryCost $u $o.model
+
+            if ($ts -ge $sessStart) { $sessTok += $tok; $sessCost += $cost }
+            if ($ts -ge $weekStart) { $weekTok += $tok; $weekCost += $cost }
+            if ($ts -ge $burnStart) {
+                $burnTok += $tok; $burnCost += $cost
+                if (-not $burnEarliest -or $ts -lt $burnEarliest) { $burnEarliest = $ts }
+                if (-not $burnLatest -or $ts -gt $burnLatest) { $burnLatest = $ts }
+            }
+        }
+    }
+
+    $stats['available']     = $true
+    $stats['tokensSession'] = [math]::Round($sessTok)
+    $stats['tokensWeek']    = [math]::Round($weekTok)
+    $stats['costSession']   = [math]::Round($sessCost, 4)
+    $stats['costWeek']      = [math]::Round($weekCost, 4)
+
+    # Burn rate / block projection need enough of a time span to be meaningful -
+    # a 10-second span would extrapolate wildly, so require at least 2 minutes.
+    $spanMin = 0.0
+    if ($burnEarliest -and $burnLatest) { $spanMin = ($burnLatest - $burnEarliest).TotalMinutes }
+    if ($spanMin -ge 2) {
+        $tpm = $burnTok / $spanMin
+        $cph = ($burnCost / $spanMin) * 60.0
+        $stats['tokensPerMin'] = [math]::Round($tpm, 1)
+        $stats['costPerHour']  = [math]::Round($cph, 2)
+
+        if ($fiveHourResetsAt) {
+            try {
+                $resetLocal = ([datetime]$fiveHourResetsAt).ToLocalTime()
+                $minsLeft = ($resetLocal - $now).TotalMinutes
+                if ($minsLeft -gt 0) {
+                    $stats['blockProjectedTokens'] = [math]::Round($sessTok + $tpm * $minsLeft)
+                    $stats['blockProjectedCost']   = [math]::Round($sessCost + ($cph / 60.0) * $minsLeft, 2)
+                }
+            } catch { }
+        }
+    }
+
+    return $stats
+}
+
 # ---------------- usage fetch ----------------
 
 function Invoke-UsageApi($accessToken) {
@@ -197,6 +385,20 @@ function Fetch-Usage {
             $result['ok'] = $true
         }
         if ($state.Creds.subscriptionType) { $result['subscription'] = $state.Creds.subscriptionType }
+
+        # Local token/cost stats are a best-effort add-on - never let a problem
+        # here take down the usage endpoint the widget actually depends on.
+        if ($result['ok']) {
+            try {
+                $fiveHourResetsAt = $null
+                if ($result['five_hour'] -and $result['five_hour'].resets_at) { $fiveHourResetsAt = $result['five_hour'].resets_at }
+                $weeklyResetsAt = $null
+                if ($result['seven_day'] -and $result['seven_day'].resets_at) { $weeklyResetsAt = $result['seven_day'].resets_at }
+
+                $local = Get-LocalTokenStats $fiveHourResetsAt $weeklyResetsAt
+                if ($local['available']) { $result['local'] = $local }
+            } catch { }
+        }
     } catch {
         $result['ok'] = $false
         $result['error'] = $_.Exception.Message
