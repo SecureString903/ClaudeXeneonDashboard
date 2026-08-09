@@ -289,28 +289,41 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
     $burnTok = 0.0; $burnCost = 0.0
     $burnEarliest = $null; $burnLatest = $null
     $matched = 0
+    # Per-stage counters so a future zero-result is diagnosable from the JSON
+    # instead of guessing again: where exactly does the count drop to zero?
+    $dbgLinesRead = 0; $dbgPrefilterHit = 0; $dbgParseOk = 0; $dbgParseErr = 0
+    $dbgIsAssistantWithUsage = 0; $dbgHasRid = 0; $dbgHasTs = 0
+    $dbgReadErrors = New-Object System.Collections.Generic.List[string]
 
     foreach ($f in $files) {
         $lines = $null
-        try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch { continue }
+        try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch {
+            if ($dbgReadErrors.Count -lt 3) { $dbgReadErrors.Add($_.Exception.Message) }
+            continue
+        }
+        $dbgLinesRead += $lines.Count
         foreach ($line in $lines) {
             # Cheap pre-filter before the expensive JSON parse - deliberately loose
             # (just "does this line mention assistant at all") since the exact
             # colon/space formatting of the raw file isn't guaranteed; the real
             # filter is the $o.type -eq 'assistant' check right after parsing.
             if (-not $line -or $line.IndexOf('assistant') -lt 0) { continue }
+            $dbgPrefilterHit++
             $o = $null
-            try { $o = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            try { $o = $line | ConvertFrom-Json -ErrorAction Stop; $dbgParseOk++ } catch { $dbgParseErr++; continue }
             if ($o.type -ne 'assistant' -or -not $o.usage) { continue }
+            $dbgIsAssistantWithUsage++
 
             $rid = $o.requestId
             if (-not $rid -and $o.message) { $rid = $o.message.id }
             if (-not $rid) { $rid = $o.uuid }
             if (-not $rid) { continue }
+            $dbgHasRid++
             if (-not $seen.Add($rid)) { continue }   # already counted this API call
 
             $ts = ConvertTo-UtcDateTime $o.timestamp
             if (-not $ts) { continue }
+            $dbgHasTs++
             $matched++
 
             $u = $o.usage
@@ -331,8 +344,16 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
         }
     }
 
-    $stats['available']       = $true
-    $stats['debugEntriesSeen'] = $matched
+    $stats['available']          = $true
+    $stats['debugEntriesSeen']   = $matched
+    $stats['debugLinesRead']     = $dbgLinesRead
+    $stats['debugPrefilterHit']  = $dbgPrefilterHit
+    $stats['debugParseOk']       = $dbgParseOk
+    $stats['debugParseErr']      = $dbgParseErr
+    $stats['debugAssistantUsage'] = $dbgIsAssistantWithUsage
+    $stats['debugHasRid']        = $dbgHasRid
+    $stats['debugHasTs']         = $dbgHasTs
+    if ($dbgReadErrors.Count -gt 0) { $stats['debugReadErrors'] = @($dbgReadErrors) }
     $stats['tokensSession']   = [math]::Round($sessTok)
     $stats['tokensWeek']      = [math]::Round($weekTok)
     $stats['costSession']     = [math]::Round($sessCost, 4)
