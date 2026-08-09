@@ -8,11 +8,16 @@ Claude Code for actual coding sessions on this PC — local token counts,
 estimated cost, burn rate, and a session-end projection. The same numbers
 Claude Code shows in `/usage`, always on your desk.
 
-![Widget in a small slot](docs/widget-small.png)
+![Full-width Edge slot](docs/widget-fullwidth.png)
 
-Adapts to any Edge slot — small, full-width, or vertical:
+The layout adapts to whatever slot you drop it in. The panel picks its own
+column count from the slot's shape, so the stat tiles stay wide and readable
+instead of collapsing into thin strips, and drops the secondary line when a
+slot is too short for it:
 
-![Full-width](docs/widget-fullwidth.png)
+| Small slot | Vertical slot |
+|---|---|
+| ![Small slot](docs/widget-small.png) | ![Vertical slot](docs/widget-vertical.png) |
 
 ## How it works
 

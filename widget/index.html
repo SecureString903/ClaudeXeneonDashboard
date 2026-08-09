@@ -227,13 +227,15 @@
     background: var(--surface-3);
     border: 1px solid var(--hairline);
     border-radius: 1.4vh;
-    padding: 1.2vh 1.6vh;
+    /* padding tracks the tile's own box so cramped layouts (a narrow vertical
+       slot with 6 tiles) don't spend half their height on whitespace */
+    padding: clamp(3px, 7cqh, 9px) clamp(6px, 4cqw, 17px);
     display: flex;
     flex-direction: column;
     /* centered (not space-between) so a tall wide card keeps its label, value
        and sub-line as one tight group instead of flinging them to the edges */
     justify-content: center;
-    gap: 2cqh;
+    gap: clamp(1px, 2cqh, 8px);
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -296,6 +298,18 @@
   .tile.noMeter .tileMeter { display: none; }
   .tile.noMeter .tileValue {
     font-size: clamp(13px, 26cqh, 44px);
+  }
+  /* When a tile gets genuinely short (lots of tiles in a small slot), shed the
+     least important lines rather than clipping every line at once. The value
+     is the point of the tile, so it's the last thing to go. NB: container
+     queries measure the CONTENT box, so these thresholds sit well below the
+     tile's outer height. */
+  @container (max-height: 58px) {
+    .tile .tileSub { display: none; }
+  }
+  @container (max-height: 38px) {
+    .tile .tileMeter { display: none; }
+    .tile .tileLabel { font-size: 9px; }
   }
 
   .footer {
