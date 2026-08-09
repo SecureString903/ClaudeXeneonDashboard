@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Usage</title>
+<meta name="x-icue-property" content="helperPort" data-label="Helper port" data-type="textfield" data-default="8787">
+<style>
+  :root {
+    --surface-1:      #1a1a19;
+    --surface-2:      #232322;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --hairline:       rgba(255,255,255,0.10);
+
+    --accent:         #3987e5;  /* normal fill */
+    --accent-track:   #0d366b;
+    --warning:        #fab219;
+    --warning-track:  #4a3505;
+    --critical:       #d03b3b;
+    --critical-track: #431414;
+    --good-text:      #0ca30c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; }
+  body {
+    background: var(--surface-1);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cards {
+    flex: 1;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 2.2vh;
+    padding: 3.2vh 3.2vh 1.2vh;
+    min-height: 0;
+  }
+  .card {
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 1.8vh;
+    padding: 2.6vh 3vh;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .group { margin: auto 0; min-width: 0; }
+  .card .label {
+    font-size: clamp(11px, min(3.4vh, 4vw), 26px);
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .valueRow {
+    display: flex;
+    align-items: baseline;
+    gap: 1.2vh;
+    margin: 0 0 0.6vh;
+    min-width: 0;
+  }
+  .value {
+    font-weight: 600;
+    font-size: clamp(22px, min(11vh, 13vw), 92px);
+    line-height: 1.05;
+  }
+  .value .pct { font-size: 0.55em; font-weight: 500; color: var(--text-secondary); }
+  .statusPill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    font-size: clamp(10px, min(2.8vh, 3.4vw), 22px);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .statusPill .dot {
+    width: 0.7em; height: 0.7em; border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+  }
+  .meter {
+    height: clamp(8px, min(2.4vh, 3vw), 20px);
+    border-radius: 4px;
+    background: var(--accent-track);
+    overflow: hidden;
+    margin: 1vh 0 1.2vh;
+  }
+  .meter .fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 0 4px 4px 0;
+    transition: width 0.6s ease;
+  }
+  .resetRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1vh;
+    font-size: clamp(10px, min(3vh, 3.6vw), 24px);
+    min-width: 0;
+  }
+  .resetRow .in { color: var(--text-primary); white-space: nowrap; }
+  .resetRow .at { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1vh;
+    padding: 0 3.4vh 1.6vh;
+    font-size: clamp(9px, min(2.4vh, 2.8vw), 18px);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .footer .conn { display: inline-flex; align-items: center; gap: 0.55em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .footer .conn .dot { width: 0.65em; height: 0.65em; border-radius: 50%; background: var(--good-text); flex: none; }
+  .footer .conn.bad .dot { background: var(--critical); }
+
+  /* Full-screen message states (helper offline, errors) */
+  .message {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 1.6vh;
+    padding: 4vh 6vw;
+  }
+  .message h1 { font-size: clamp(16px, 6vh, 44px); font-weight: 600; }
+  .message p  { font-size: clamp(11px, 3.2vh, 24px); color: var(--text-secondary); max-width: 60ch; }
+  .message code {
+    font-family: Consolas, monospace;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    padding: 0.15em 0.5em;
+    color: var(--text-secondary);
+  }
+  body.showMessage .cards, body.showMessage .footer { display: none; }
+  body.showMessage .message { display: flex; }
+
+  /* Narrow/tall slots: stack cards vertically */
+  @media (max-aspect-ratio: 5/4) {
+    .cards { grid-auto-flow: row; grid-auto-columns: unset; grid-auto-rows: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <div class="cards" id="cards"></div>
+  <div class="footer">
+    <span class="conn" id="conn"><span class="dot"></span><span id="connText">Connecting…</span></span>
+    <span id="updated"></span>
+  </div>
+  <div class="message" id="message"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- config ----------
+  function getPort() {
+    try {
+      var q = new URLSearchParams(location.search).get('port');
+      if (q) return q;
+    } catch (e) {}
+    if (typeof helperPort !== 'undefined' && helperPort) return String(helperPort); // iCUE property
+    return '8787';
+  }
+  function usageUrl() {
+    // When served by the helper itself (iFrame mode / browser), stay same-origin.
+    if (location.protocol === 'http:' || location.protocol === 'https:') return '/usage';
+    return 'http://127.0.0.1:' + getPort() + '/usage';
+  }
+
+  var POLL_MS = 60000;
+  var LABELS = {
+    five_hour:            'Current session · 5 hr',
+    seven_day:            'Weekly · all models',
+    seven_day_opus:       'Weekly · Opus',
+    seven_day_sonnet:     'Weekly · Sonnet',
+    seven_day_oauth_apps: 'Weekly · connected apps',
+    extra_credit:         'Extra credit',
+    extra_usage:          'Extra usage'
+  };
+  var ORDER = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'seven_day_oauth_apps', 'extra_credit', 'extra_usage'];
+  // Only show recognized panels; unrecognized internal buckets (codename fields
+  // Anthropic hasn't announced) are hidden. Extra-credit-style keys always pass.
+  function isUseful(key) {
+    return Object.prototype.hasOwnProperty.call(LABELS, key) || /extra/i.test(key);
+  }
+
+  var state = { data: null, fetchedLocal: 0, offline: false, lastError: null };
+
+  // ---------- helpers ----------
+  function prettyLabel(key) {
+    if (LABELS[key]) return LABELS[key];
+    return key.replace(/^seven_day_?/, 'Weekly · ').replace(/_/g, ' ')
+              .replace(/^\s*·\s*$/, 'Weekly') || key;
+  }
+  function severity(pct) {
+    if (pct >= 90) return { name: 'critical', fill: 'var(--critical)', track: 'var(--critical-track)', word: 'Nearly used up' };
+    if (pct >= 70) return { name: 'warning',  fill: 'var(--warning)',  track: 'var(--warning-track)',  word: 'Running high' };
+    return { name: 'ok', fill: 'var(--accent)', track: 'var(--accent-track)', word: 'Available' };
+  }
+  function fmtCountdown(ms) {
+    if (ms <= 0) return 'now';
+    var m = Math.floor(ms / 60000);
+    var d = Math.floor(m / 1440);
+    var h = Math.floor((m % 1440) / 60);
+    var mm = m % 60;
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + (mm < 10 ? '0' : '') + mm + 'm';
+    return mm + 'm';
+  }
+  function fmtClock(dt) {
+    try {
+      var opts = { hour: 'numeric', minute: '2-digit' };
+      var now = new Date();
+      if (dt.toDateString() !== now.toDateString()) opts.weekday = 'short';
+      return dt.toLocaleString([], opts);
+    } catch (e) { return ''; }
+  }
+  function limitsFrom(data) {
+    var out = [];
+    var seen = {};
+    ORDER.forEach(function (k) {
+      if (data[k] && typeof data[k] === 'object' && 'utilization' in data[k]) { out.push([k, data[k]]); seen[k] = 1; }
+    });
+    Object.keys(data).forEach(function (k) {
+      var v = data[k];
+      if (!seen[k] && v && typeof v === 'object' && 'utilization' in v && isUseful(k)) out.push([k, v]);
+    });
+    return out;
+  }
+
+  // ---------- rendering ----------
+  var cardsEl = document.getElementById('cards');
+  var msgEl = document.getElementById('message');
+  var connEl = document.getElementById('conn');
+  var connTextEl = document.getElementById('connText');
+  var updatedEl = document.getElementById('updated');
+  var cardEls = {};
+
+  function showMessage(title, bodyHtml) {
+    msgEl.innerHTML = '<h1>' + title + '</h1>' + bodyHtml;
+    document.body.classList.add('showMessage');
+  }
+  function hideMessage() { document.body.classList.remove('showMessage'); }
+
+  function buildCard(key) {
+    var el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML =
+      '<div class="label"></div>' +
+      '<div class="group">' +
+      '<div class="valueRow"><span class="value"><span class="num"></span><span class="pct">%</span></span>' +
+      '<span class="statusPill"><span class="dot"></span><span class="word"></span></span></div>' +
+      '<div class="meter"><div class="fill"></div></div>' +
+      '<div class="resetRow"><span class="in"></span><span class="at"></span></div>' +
+      '</div>';
+    cardsEl.appendChild(el);
+    cardEls[key] = el;
+    return el;
+  }
+
+  function render() {
+    var data = state.data;
+    if (state.offline) {
+      showMessage('Can’t reach the usage helper',
+        '<p>The little background server that reads your Claude usage isn’t responding.</p>' +
+        '<p>Run <code>install.bat</code> from the ClaudeUsageWidget folder, or start it manually with ' +
+        '<code>ClaudeUsageServer.ps1</code>, then this widget will reconnect on its own.</p>');
+      setConn(false, 'Helper offline');
+      return;
+    }
+    if (!data) return;
+    if (data.ok === false) {
+      showMessage('Can\u2019t fetch Claude usage',
+        '<p>' + (data.error || 'Could not fetch usage.') + '</p>');
+      setConn(false, 'Error');
+      return;
+    }
+    hideMessage();
+    setConn(true, data.subscription ? ('Claude ' + String(data.subscription).replace(/^./, function(c){return c.toUpperCase();})) : 'Connected');
+
+    var limits = limitsFrom(data);
+    // Remove cards that no longer exist
+    Object.keys(cardEls).forEach(function (k) {
+      if (!limits.some(function (p) { return p[0] === k; })) { cardEls[k].remove(); delete cardEls[k]; }
+    });
+
+    var now = Date.now();
+    limits.forEach(function (pair) {
+      var key = pair[0], lim = pair[1];
+      var el = cardEls[key] || buildCard(key);
+      var pct = Number(lim.utilization);
+      if (!isFinite(pct)) pct = 0;
+      pct = Math.max(0, Math.min(100, pct));
+      var sev = severity(pct);
+
+      el.querySelector('.label').textContent = prettyLabel(key);
+      el.querySelector('.num').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) : pct.toFixed(1);
+      var fill = el.querySelector('.fill');
+      fill.style.width = pct + '%';
+      fill.style.background = sev.fill;
+      el.querySelector('.meter').style.background = sev.track;
+      el.querySelector('.statusPill .dot').style.background = sev.fill;
+      el.querySelector('.statusPill .word').textContent = sev.word;
+
+      var inEl = el.querySelector('.in'), atEl = el.querySelector('.at');
+      if (lim.resets_at) {
+        var t = new Date(lim.resets_at);
+        if (!isNaN(t)) {
+          inEl.textContent = 'Resets in ' + fmtCountdown(t - now);
+          atEl.textContent = fmtClock(t);
+        } else { inEl.textContent = ''; atEl.textContent = ''; }
+      } else {
+        inEl.textContent = ''; atEl.textContent = '';
+      }
+    });
+
+    if (state.fetchedLocal) {
+      var ago = Math.max(0, Math.round((now - state.fetchedLocal) / 60000));
+      updatedEl.textContent = ago === 0 ? 'Updated just now' : 'Updated ' + ago + ' min ago';
+    }
+  }
+
+  function setConn(ok, text) {
+    connEl.className = 'conn' + (ok ? '' : ' bad');
+    connTextEl.textContent = text;
+  }
+
+  // ---------- data loop ----------
+  function poll() {
+    fetch(usageUrl(), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        state.data = json;
+        state.offline = false;
+        state.fetchedLocal = Date.now();
+        render();
+      })
+      .catch(function (err) {
+        state.offline = true;
+        state.lastError = String(err);
+        render();
+      });
+  }
+
+  poll();
+  setInterval(poll, POLL_MS);
+  setInterval(render, 30000); // keep countdowns fresh between polls
+
+  // iCUE lifecycle (safe no-ops outside iCUE)
+  window.icueEvents = {
+    onICUEInitialized: function () { poll(); },
+    onDataUpdated: function () { render(); }
+  };
+})();
+</script>
+</body>
+</html>

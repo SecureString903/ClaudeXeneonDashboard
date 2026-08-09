@@ -1,0 +1,4 @@
+# NEVER commit tokens or credentials
+token.txt
+.credentials.json
+dist/

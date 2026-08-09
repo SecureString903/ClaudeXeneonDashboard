@@ -1,0 +1,20 @@
+{
+  "author": "SecureString903",
+  "id": "com.securestring903.claudeusage",
+  "name": "Claude Usage",
+  "description": "Live Claude subscription usage - 5-hour session and weekly limits with reset countdowns. Requires the local ClaudeUsageServer helper.",
+  "version": "1.3.0",
+  "preview_icon": "resources/icon.png",
+  "min_app_version": "5.46",
+  "min_framework_version": "1.0.0",
+  "os": [
+    {
+      "platform": "windows"
+    }
+  ],
+  "supported_devices": [
+    {
+      "type": "dashboard_lcd"
+    }
+  ]
+}
