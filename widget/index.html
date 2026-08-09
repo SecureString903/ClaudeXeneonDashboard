@@ -196,16 +196,17 @@
     color: var(--text-muted);
     white-space: nowrap;
   }
-  /* Grid of stat tiles. Rows are capped to a sensible height range (rather
-     than 1fr, which stretched a single row of tiles into tall vertical
-     strips) so tiles stay wide-and-short whether there's 1 or 6 of them;
-     align-content centers the block when it doesn't fill the panel. */
+  /* Grid of stat tiles. The column count is chosen in JS (layoutPanel) from
+     the panel's real width/height and the tile count, so every tile comes out
+     wide-and-short instead of a tall vertical strip - CSS auto-fit can't do
+     that on its own because it only knows the available width, not how many
+     rows will result. Rows are 1fr so tiles fill the panel rather than
+     huddling in the middle. */
   .panelRows {
     flex: 1;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    grid-auto-rows: minmax(70px, 150px);
-    align-content: center;
+    grid-template-columns: 1fr;
+    grid-auto-rows: 1fr;
     gap: 1vh;
     min-height: 0;
     overflow: hidden;
@@ -229,7 +230,10 @@
     padding: 1.2vh 1.6vh;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    /* centered (not space-between) so a tall wide card keeps its label, value
+       and sub-line as one tight group instead of flinging them to the edges */
+    justify-content: center;
+    gap: 2cqh;
     min-width: 0;
     min-height: 0;
     overflow: hidden;
@@ -291,7 +295,7 @@
      cap the font a bit smaller than the plain percentage tiles. */
   .tile.noMeter .tileMeter { display: none; }
   .tile.noMeter .tileValue {
-    font-size: clamp(13px, 26cqh, 36px);
+    font-size: clamp(13px, 26cqh, 44px);
   }
 
   .footer {
@@ -515,6 +519,40 @@
     return el;
   }
 
+  // Pick the column count that gets each tile closest to a wide landscape
+  // card. A CSS auto-fit grid only knows the available width, so with 3 tiles
+  // in a tall panel it makes one row of tall strips; this walks every possible
+  // column count and scores the tile aspect ratio each one produces.
+  var TILE_TARGET_ASPECT = 2.6;   // width / height we aim for
+  var panelTileCount = 0;
+  var lastPanelCols = '';
+  function layoutPanel(n) {
+    if (!n) {
+      if (lastPanelCols !== '1fr') { panelRowsEl.style.gridTemplateColumns = '1fr'; lastPanelCols = '1fr'; }
+      return;
+    }
+    var W = panelRowsEl.clientWidth, H = panelRowsEl.clientHeight;
+    if (!W || !H) return;
+    var gap = parseFloat(getComputedStyle(panelRowsEl).rowGap) || 0;
+    var best = 1, bestScore = Infinity;
+    for (var c = 1; c <= n; c++) {
+      var r = Math.ceil(n / c);
+      var tw = (W - gap * (c - 1)) / c;
+      var th = (H - gap * (r - 1)) / r;
+      if (tw <= 0 || th <= 0) continue;
+      // log distance keeps "half the target" and "double the target" equally bad
+      var score = Math.abs(Math.log((tw / th) / TILE_TARGET_ASPECT));
+      if (tw / th < 1.25) score += 3;        // portrait tiles - the thing we're avoiding
+      if (th < 54) score += 2;               // too short to fit label+value+sub
+      if (tw < 110) score += 2;              // too narrow for the value text
+      score += (c * r - n) * 0.12;           // prefer full rows over ragged ones
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    var css = 'repeat(' + best + ', 1fr)';
+    if (css !== lastPanelCols) { panelRowsEl.style.gridTemplateColumns = css; lastPanelCols = css; }
+  }
+  window.addEventListener('resize', function () { layoutPanel(panelTileCount); });
+
   function fillReset(inEl, atEl, lim, now) {
     if (lim.resets_at) {
       var t = new Date(lim.resets_at);
@@ -645,6 +683,7 @@
     });
 
     // ---- side panel: grid of stat tiles (remaining limits + local token/cost stats) ----
+    panelTileCount = panelKeys.length;
     if (panelKeys.length === 0) {
       if (!panelRowsEl.querySelector('.panelEmpty')) {
         panelRowsEl.innerHTML = '<div class="panelEmpty">Nothing else to show</div>';
@@ -684,6 +723,7 @@
         renderStatTile(el, def);
       });
     }
+    layoutPanel(panelTileCount);
 
     if (state.fetchedLocal) {
       var ago = Math.max(0, Math.round((now - state.fetchedLocal) / 60000));
