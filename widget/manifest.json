@@ -3,7 +3,7 @@
   "id": "com.securestring903.claudeusage",
   "name": "Claude Usage",
   "description": "Live Claude subscription usage - ring gauges for 5-hour session and weekly limits, plus a side panel with the rest (Opus/Sonnet weekly, connected apps, extra credit). Requires the local ClaudeUsageServer helper.",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "preview_icon": "resources/icon.png",
   "min_app_version": "5.46",
   "min_framework_version": "1.0.0",
