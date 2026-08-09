@@ -255,7 +255,7 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
     $stats = @{ available = $false }
 
     $dirs = Find-ProjectsDir
-    if (-not $dirs -or $dirs.Count -eq 0) { $stats['debugDirsFound'] = 0; return $stats }
+    if (-not $dirs -or $dirs.Count -eq 0) { return $stats }
 
     # Only files touched recently enough to matter for a 7-day window (+ buffer).
     $cutoff = (Get-Date).AddDays(-8)   # LastWriteTime is local; fine to compare local-to-local
@@ -264,8 +264,6 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
         $files += Get-ChildItem -Path $d -Recurse -Filter '*.jsonl' -ErrorAction SilentlyContinue |
                   Where-Object { $_.LastWriteTime -ge $cutoff }
     }
-    $stats['debugDirsFound']  = $dirs.Count
-    $stats['debugFilesFound'] = $files.Count
     if ($files.Count -eq 0) { return $stats }
 
     # Anchor session/week windows to the OAuth data's own reset times when we
@@ -288,44 +286,29 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
     $weekTok = 0.0; $weekCost = 0.0
     $burnTok = 0.0; $burnCost = 0.0
     $burnEarliest = $null; $burnLatest = $null
-    $matched = 0
-    # Per-stage counters so a future zero-result is diagnosable from the JSON
-    # instead of guessing again: where exactly does the count drop to zero?
-    $dbgLinesRead = 0; $dbgPrefilterHit = 0; $dbgParseOk = 0; $dbgParseErr = 0
-    $dbgIsAssistantWithUsage = 0; $dbgHasRid = 0; $dbgHasTs = 0
-    $dbgReadErrors = New-Object System.Collections.Generic.List[string]
 
     foreach ($f in $files) {
         $lines = $null
-        try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch {
-            if ($dbgReadErrors.Count -lt 3) { $dbgReadErrors.Add($_.Exception.Message) }
-            continue
-        }
-        $dbgLinesRead += $lines.Count
+        try { $lines = [System.IO.File]::ReadAllLines($f.FullName) } catch { continue }
         foreach ($line in $lines) {
             # Cheap pre-filter before the expensive JSON parse - deliberately loose
             # (just "does this line mention assistant at all") since the exact
             # colon/space formatting of the raw file isn't guaranteed; the real
             # filter is the $o.type -eq 'assistant' check right after parsing.
             if (-not $line -or $line.IndexOf('assistant') -lt 0) { continue }
-            $dbgPrefilterHit++
             $o = $null
-            try { $o = $line | ConvertFrom-Json -ErrorAction Stop; $dbgParseOk++ } catch { $dbgParseErr++; continue }
+            try { $o = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
             # usage/model live under .message, not at the top level of the line.
             if ($o.type -ne 'assistant' -or -not $o.message -or -not $o.message.usage) { continue }
-            $dbgIsAssistantWithUsage++
 
             $rid = $o.requestId
             if (-not $rid -and $o.message) { $rid = $o.message.id }
             if (-not $rid) { $rid = $o.uuid }
             if (-not $rid) { continue }
-            $dbgHasRid++
             if (-not $seen.Add($rid)) { continue }   # already counted this API call
 
             $ts = ConvertTo-UtcDateTime $o.timestamp
             if (-not $ts) { continue }
-            $dbgHasTs++
-            $matched++
 
             $u = $o.message.usage
             $tok = 0.0
@@ -345,16 +328,7 @@ function Get-LocalTokenStats($fiveHourResetsAt, $weeklyResetsAt) {
         }
     }
 
-    $stats['available']          = $true
-    $stats['debugEntriesSeen']   = $matched
-    $stats['debugLinesRead']     = $dbgLinesRead
-    $stats['debugPrefilterHit']  = $dbgPrefilterHit
-    $stats['debugParseOk']       = $dbgParseOk
-    $stats['debugParseErr']      = $dbgParseErr
-    $stats['debugAssistantUsage'] = $dbgIsAssistantWithUsage
-    $stats['debugHasRid']        = $dbgHasRid
-    $stats['debugHasTs']         = $dbgHasTs
-    if ($dbgReadErrors.Count -gt 0) { $stats['debugReadErrors'] = @($dbgReadErrors) }
+    $stats['available']       = $true
     $stats['tokensSession']   = [math]::Round($sessTok)
     $stats['tokensWeek']      = [math]::Round($weekTok)
     $stats['costSession']     = [math]::Round($sessCost, 4)
