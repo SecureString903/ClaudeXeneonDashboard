@@ -9,6 +9,7 @@
   :root {
     --surface-1:      #1a1a19;
     --surface-2:      #232322;
+    --surface-3:      #2a2a28;
     --text-primary:   #ffffff;
     --text-secondary: #c3c2b7;
     --text-muted:     #898781;
@@ -33,84 +34,211 @@
     flex-direction: column;
   }
 
-  .cards {
+  /* ---------- overall stage: rings (left) + side panel (right) ---------- */
+  .stage {
     flex: 1;
+    display: flex;
+    flex-direction: row;
+    gap: 2.2vh;
+    padding: 3.2vh 3.2vh 1.2vh;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .rings {
+    flex: 1.7;
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
     gap: 2.2vh;
-    padding: 3.2vh 3.2vh 1.2vh;
+    min-width: 0;
     min-height: 0;
   }
-  .card {
+
+  /* ---------- ring gauge card ---------- */
+  .ringCard {
     background: var(--surface-2);
     border: 1px solid var(--hairline);
     border-radius: 1.8vh;
-    padding: 2.6vh 3vh;
+    padding: 2vh 2vh 2.2vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .ringWrap {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ringWrap svg {
+    width: min(100%, 100%);
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 1;
+  }
+  .ringWrap svg circle {
+    stroke: var(--accent-track);
+  }
+  .ringWrap svg circle.value {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+  }
+  .ringCenter {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    pointer-events: none;
+  }
+  .ringPct {
+    font-weight: 600;
+    font-size: clamp(20px, min(9vh, 11vw), 74px);
+    line-height: 1;
+  }
+  .ringPct .sign { font-size: 0.5em; font-weight: 500; color: var(--text-secondary); }
+  .ringWord {
+    margin-top: 0.4em;
+    font-size: clamp(9px, min(2.2vh, 2.6vw), 17px);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .ringLabel {
+    margin-top: 1.4vh;
+    font-size: clamp(11px, min(3vh, 3.4vw), 22px);
+    color: var(--text-secondary);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .ringReset {
+    margin-top: 0.4vh;
+    display: flex;
+    gap: 0.6em;
+    font-size: clamp(9px, min(2.2vh, 2.6vw), 16px);
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .ringReset .in { color: var(--text-primary); }
+  .ringReset .at { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- side panel ---------- */
+  .panel {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 1.8vh;
+    padding: 2.2vh 2.4vh;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
     overflow: hidden;
   }
-  .group { margin: auto 0; min-width: 0; }
-  .card .label {
-    font-size: clamp(11px, min(3.4vh, 4vw), 26px);
-    color: var(--text-secondary);
-    letter-spacing: 0.02em;
+  .panelHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1vh;
+    padding-bottom: 1.6vh;
+    margin-bottom: 1.4vh;
+    border-bottom: 1px solid var(--hairline);
+    flex: none;
+  }
+  .planPill {
+    font-size: clamp(10px, min(2.6vh, 3vw), 19px);
+    font-weight: 600;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .valueRow {
-    display: flex;
-    align-items: baseline;
-    gap: 1.2vh;
-    margin: 0 0 0.6vh;
-    min-width: 0;
-  }
-  .value {
-    font-weight: 600;
-    font-size: clamp(22px, min(11vh, 13vw), 92px);
-    line-height: 1.05;
-  }
-  .value .pct { font-size: 0.55em; font-weight: 500; color: var(--text-secondary); }
-  .statusPill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5em;
-    font-size: clamp(10px, min(2.8vh, 3.4vw), 22px);
-    color: var(--text-secondary);
+  .panelHead .sub {
+    font-size: clamp(9px, min(2vh, 2.2vw), 14px);
+    color: var(--text-muted);
     white-space: nowrap;
   }
-  .statusPill .dot {
-    width: 0.7em; height: 0.7em; border-radius: 50%;
+  .panelRows {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    gap: 1vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .panelEmpty {
+    margin: auto;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: clamp(10px, min(2.4vh, 2.8vw), 16px);
+  }
+  .row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.9vh;
+    min-width: 0;
+  }
+  .row .dot {
+    width: 0.9vh; height: 0.9vh;
+    min-width: 7px; min-height: 7px;
+    border-radius: 50%;
     background: var(--accent);
     flex: none;
   }
-  .meter {
-    height: clamp(8px, min(2.4vh, 3vw), 20px);
-    border-radius: 4px;
+  .row .rowMain { display: block; min-width: 0; }
+  .row .rowLabel {
+    display: block;
+    font-size: clamp(10px, min(2.4vh, 2.8vw), 17px);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row .rowMeter {
+    display: block;
+    height: clamp(5px, 0.9vh, 8px);
+    border-radius: 3px;
     background: var(--accent-track);
     overflow: hidden;
-    margin: 1vh 0 1.2vh;
+    margin-top: 0.5vh;
   }
-  .meter .fill {
+  .row .rowMeter i {
+    display: block;
     height: 100%;
     width: 0%;
     background: var(--accent);
-    border-radius: 0 4px 4px 0;
-    transition: width 0.6s ease;
+    border-radius: 0 3px 3px 0;
+    transition: width 0.6s ease, background 0.3s ease;
   }
-  .resetRow {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 1vh;
-    font-size: clamp(10px, min(3vh, 3.6vw), 24px);
-    min-width: 0;
+  .row .rowRight {
+    text-align: right;
+    white-space: nowrap;
   }
-  .resetRow .in { color: var(--text-primary); white-space: nowrap; }
-  .resetRow .at { color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .rowPct {
+    font-weight: 600;
+    font-size: clamp(11px, min(2.6vh, 3vw), 18px);
+  }
+  .row .rowReset {
+    display: block;
+    font-size: clamp(8px, min(1.8vh, 2vw), 13px);
+    color: var(--text-muted);
+  }
 
   .footer {
     display: flex;
@@ -147,17 +275,32 @@
     padding: 0.15em 0.5em;
     color: var(--text-secondary);
   }
-  body.showMessage .cards, body.showMessage .footer { display: none; }
+  body.showMessage .stage, body.showMessage .footer { display: none; }
   body.showMessage .message { display: flex; }
 
-  /* Narrow/tall slots: stack cards vertically */
+  /* Narrow/tall slots: stack rings above the panel, rings side-by-side */
   @media (max-aspect-ratio: 5/4) {
-    .cards { grid-auto-flow: row; grid-auto-columns: unset; grid-auto-rows: 1fr; }
+    .stage { flex-direction: column; }
+    .rings { flex: none; height: 52%; }
+    .panel { flex: 1; }
+  }
+  /* Very narrow (vertical Edge slot): stack the two rings too */
+  @media (max-aspect-ratio: 2/3) {
+    .rings { grid-auto-flow: row; grid-auto-columns: unset; grid-auto-rows: 1fr; height: 62%; }
   }
 </style>
 </head>
 <body>
-  <div class="cards" id="cards"></div>
+  <div class="stage" id="stage">
+    <div class="rings" id="rings"></div>
+    <div class="panel" id="panel">
+      <div class="panelHead">
+        <span class="planPill" id="planPill">Claude</span>
+        <span class="sub" id="panelSub">other limits</span>
+      </div>
+      <div class="panelRows" id="panelRows"></div>
+    </div>
+  </div>
   <div class="footer">
     <span class="conn" id="conn"><span class="dot"></span><span id="connText">Connecting…</span></span>
     <span id="updated"></span>
@@ -194,6 +337,9 @@
     extra_usage:          'Extra usage'
   };
   var ORDER = ['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'seven_day_oauth_apps', 'extra_credit', 'extra_usage'];
+  // The two headline limits get the big ring gauges; everything else (that's
+  // recognized, or clearly an "extra" bucket) is listed compactly in the panel.
+  var RING_KEYS = ['five_hour', 'seven_day'];
   // Only show recognized panels; unrecognized internal buckets (codename fields
   // Anthropic hasn't announced) are hidden. Extra-credit-style keys always pass.
   function isUseful(key) {
@@ -244,13 +390,19 @@
     return out;
   }
 
+  // ---------- ring gauge geometry ----------
+  var RING_R = 58, RING_CIRC = 2 * Math.PI * RING_R;
+
   // ---------- rendering ----------
-  var cardsEl = document.getElementById('cards');
+  var ringsEl = document.getElementById('rings');
+  var panelRowsEl = document.getElementById('panelRows');
+  var planPillEl = document.getElementById('planPill');
   var msgEl = document.getElementById('message');
   var connEl = document.getElementById('conn');
   var connTextEl = document.getElementById('connText');
   var updatedEl = document.getElementById('updated');
-  var cardEls = {};
+  var ringEls = {};
+  var rowEls = {};
 
   function showMessage(title, bodyHtml) {
     msgEl.innerHTML = '<h1>' + title + '</h1>' + bodyHtml;
@@ -258,20 +410,48 @@
   }
   function hideMessage() { document.body.classList.remove('showMessage'); }
 
-  function buildCard(key) {
+  function buildRing(key) {
     var el = document.createElement('div');
-    el.className = 'card';
+    el.className = 'ringCard';
     el.innerHTML =
-      '<div class="label"></div>' +
-      '<div class="group">' +
-      '<div class="valueRow"><span class="value"><span class="num"></span><span class="pct">%</span></span>' +
-      '<span class="statusPill"><span class="dot"></span><span class="word"></span></span></div>' +
-      '<div class="meter"><div class="fill"></div></div>' +
-      '<div class="resetRow"><span class="in"></span><span class="at"></span></div>' +
-      '</div>';
-    cardsEl.appendChild(el);
-    cardEls[key] = el;
+      '<div class="ringWrap">' +
+        '<svg viewBox="0 0 140 140">' +
+          '<circle class="track" cx="70" cy="70" r="' + RING_R + '" fill="none" stroke-width="12"/>' +
+          '<circle class="value" cx="70" cy="70" r="' + RING_R + '" fill="none" stroke-width="12" ' +
+            'stroke-dasharray="' + RING_CIRC.toFixed(1) + '" transform="rotate(-90 70 70)"/>' +
+        '</svg>' +
+        '<div class="ringCenter"><span class="ringPct"><span class="num"></span><span class="sign">%</span></span>' +
+        '<span class="ringWord"></span></div>' +
+      '</div>' +
+      '<div class="ringLabel"></div>' +
+      '<div class="ringReset"><span class="in"></span><span class="at"></span></div>';
+    ringsEl.appendChild(el);
+    ringEls[key] = el;
     return el;
+  }
+
+  function buildRow(key) {
+    var el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML =
+      '<span class="dot"></span>' +
+      '<span class="rowMain"><span class="rowLabel"></span><span class="rowMeter"><i></i></span></span>' +
+      '<span class="rowRight"><span class="rowPct"></span><span class="rowReset"></span></span>';
+    panelRowsEl.appendChild(el);
+    rowEls[key] = el;
+    return el;
+  }
+
+  function fillReset(inEl, atEl, lim, now) {
+    if (lim.resets_at) {
+      var t = new Date(lim.resets_at);
+      if (!isNaN(t)) {
+        inEl.textContent = 'Resets in ' + fmtCountdown(t - now);
+        atEl.textContent = fmtClock(t);
+        return;
+      }
+    }
+    inEl.textContent = ''; atEl.textContent = '';
   }
 
   function render() {
@@ -286,49 +466,82 @@
     }
     if (!data) return;
     if (data.ok === false) {
-      showMessage('Can\u2019t fetch Claude usage',
+      showMessage('Can’t fetch Claude usage',
         '<p>' + (data.error || 'Could not fetch usage.') + '</p>');
       setConn(false, 'Error');
       return;
     }
     hideMessage();
-    setConn(true, data.subscription ? ('Claude ' + String(data.subscription).replace(/^./, function(c){return c.toUpperCase();})) : 'Connected');
+    var planText = data.subscription ? ('Claude ' + String(data.subscription).replace(/^./, function(c){return c.toUpperCase();})) : 'Claude';
+    setConn(true, planText);
+    planPillEl.textContent = planText;
 
     var limits = limitsFrom(data);
-    // Remove cards that no longer exist
-    Object.keys(cardEls).forEach(function (k) {
-      if (!limits.some(function (p) { return p[0] === k; })) { cardEls[k].remove(); delete cardEls[k]; }
+    var ringKeys = limits.filter(function (p) { return RING_KEYS.indexOf(p[0]) !== -1; });
+    var rowKeys = limits.filter(function (p) { return RING_KEYS.indexOf(p[0]) === -1; });
+
+    // Remove stale ring/row elements
+    Object.keys(ringEls).forEach(function (k) {
+      if (!ringKeys.some(function (p) { return p[0] === k; })) { ringEls[k].remove(); delete ringEls[k]; }
+    });
+    Object.keys(rowEls).forEach(function (k) {
+      if (!rowKeys.some(function (p) { return p[0] === k; })) { rowEls[k].remove(); delete rowEls[k]; }
     });
 
     var now = Date.now();
-    limits.forEach(function (pair) {
+
+    // ---- big rings ----
+    ringKeys.forEach(function (pair) {
       var key = pair[0], lim = pair[1];
-      var el = cardEls[key] || buildCard(key);
+      var el = ringEls[key] || buildRing(key);
       var pct = Number(lim.utilization);
       if (!isFinite(pct)) pct = 0;
       pct = Math.max(0, Math.min(100, pct));
       var sev = severity(pct);
+      var offset = RING_CIRC * (1 - pct / 100);
 
-      el.querySelector('.label').textContent = prettyLabel(key);
-      el.querySelector('.num').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) : pct.toFixed(1);
-      var fill = el.querySelector('.fill');
-      fill.style.width = pct + '%';
-      fill.style.background = sev.fill;
-      el.querySelector('.meter').style.background = sev.track;
-      el.querySelector('.statusPill .dot').style.background = sev.fill;
-      el.querySelector('.statusPill .word').textContent = sev.word;
-
-      var inEl = el.querySelector('.in'), atEl = el.querySelector('.at');
-      if (lim.resets_at) {
-        var t = new Date(lim.resets_at);
-        if (!isNaN(t)) {
-          inEl.textContent = 'Resets in ' + fmtCountdown(t - now);
-          atEl.textContent = fmtClock(t);
-        } else { inEl.textContent = ''; atEl.textContent = ''; }
-      } else {
-        inEl.textContent = ''; atEl.textContent = '';
-      }
+      el.querySelector('circle.value').style.strokeDashoffset = offset.toFixed(1);
+      el.querySelector('circle.value').style.stroke = sev.fill;
+      el.querySelector('circle.track').style.stroke = sev.track;
+      el.querySelector('.ringPct .num').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) : pct.toFixed(1);
+      el.querySelector('.ringWord').textContent = sev.word;
+      el.querySelector('.ringLabel').textContent = prettyLabel(key);
+      fillReset(el.querySelector('.ringReset .in'), el.querySelector('.ringReset .at'), lim, now);
     });
+
+    // ---- side panel rows ----
+    if (rowKeys.length === 0) {
+      if (!panelRowsEl.querySelector('.panelEmpty')) {
+        panelRowsEl.innerHTML = '<div class="panelEmpty">Nothing else to show</div>';
+      }
+    } else {
+      var empty = panelRowsEl.querySelector('.panelEmpty');
+      if (empty) empty.remove();
+      rowKeys.forEach(function (pair) {
+        var key = pair[0], lim = pair[1];
+        var el = rowEls[key] || buildRow(key);
+        var pct = Number(lim.utilization);
+        if (!isFinite(pct)) pct = 0;
+        pct = Math.max(0, Math.min(100, pct));
+        var sev = severity(pct);
+
+        el.querySelector('.dot').style.background = sev.fill;
+        el.querySelector('.rowLabel').textContent = prettyLabel(key);
+        var fill = el.querySelector('.rowMeter i');
+        fill.style.width = pct + '%';
+        fill.style.background = sev.fill;
+        el.querySelector('.rowMeter').style.background = sev.track;
+        el.querySelector('.rowPct').textContent = (pct >= 10 || pct === 0) ? Math.round(pct) + '%' : pct.toFixed(1) + '%';
+
+        var resetEl = el.querySelector('.rowReset');
+        if (lim.resets_at) {
+          var t = new Date(lim.resets_at);
+          resetEl.textContent = !isNaN(t) ? fmtCountdown(t - now) : '';
+        } else {
+          resetEl.textContent = '';
+        }
+      });
+    }
 
     if (state.fetchedLocal) {
       var ago = Math.max(0, Math.round((now - state.fetchedLocal) / 60000));
